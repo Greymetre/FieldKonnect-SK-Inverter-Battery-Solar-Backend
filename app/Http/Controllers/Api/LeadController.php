@@ -55,7 +55,7 @@ class LeadController extends Controller
         $listQuery = Lead::query()
             ->with(['address', 'status_is', 'contacts', 'notes', 'opportunities']);
 
-        if (!$user->hasRole('superadmin')) {
+        if (!userCanViewAllData($user)) {
             $reporting_users = getUsersReportingToAuth($user->id);
             $listQuery->where(function ($q) use ($reporting_users) {
                 $q->whereIn('created_by', $reporting_users)
@@ -124,7 +124,7 @@ class LeadController extends Controller
 
         $grouped = Lead::select('status', DB::raw('COUNT(*) as cnt'))
             ->groupBy('status');
-        if (!$user->hasRole('superadmin')) {
+        if (!userCanViewAllData($user)) {
             $reporting_users = getUsersReportingToAuth($user->id);
             $grouped->where(function ($q) use ($reporting_users) {
                 $q->whereIn('created_by', $reporting_users)

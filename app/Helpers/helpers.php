@@ -426,6 +426,26 @@ if (! function_exists('getLatLongToCity')) {
         return $addressline;
     }
 }
+if (! function_exists('allDataRoleNames')) {
+    function allDataRoleNames(): array
+    {
+        return ['superadmin', 'Admin', 'HR Admin', 'Account Admin'];
+    }
+}
+
+if (! function_exists('userCanViewAllData')) {
+    function userCanViewAllData($user = null): bool
+    {
+        $user = $user ?: Auth::user();
+
+        if (! $user) {
+            return false;
+        }
+
+        return $user->roles()->whereIn('name', allDataRoleNames())->exists();
+    }
+}
+
 if (! function_exists('getUsersReportingToAuth')) {
     function getUsersReportingToAuth($userid = '')
     {
