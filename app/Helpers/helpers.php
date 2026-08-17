@@ -29,6 +29,7 @@ use App\Models\LeadNotification;
 use App\Models\OpeningStock;
 use Google\Auth\Credentials\ServiceAccountCredentials;
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\RequestException;
 use Illuminate\Support\Str;
 
 if (! function_exists('sendmessage')) {
@@ -62,72 +63,34 @@ if (! function_exists('sendmessage')) {
 if (! function_exists('sendNotification')) {
     function sendNotification($userid, $data)
     {
-        $token = User::where('id', $userid)->pluck('notification_id')->first();
-        $url = "https://fcm.googleapis.com/fcm/send";
-        // $serverKey = 'AAAAjMeiBjY:APA91bGtua9m0x8v1pNNAX6JhNDjnCvm4HgVQnpUhaFID4WonakTivV72RzttdSs5Aux1ua0BUZQGM3RkzAYuGr8BnQcit2rMEF7-aMhzWnWtoLoMNxsbzRTpTy8k8x6sYPHoLbIh9vX';
+        $sent = SendPushNotification(
+            $userid,
+            (string) ($data['body'] ?? $data['message'] ?? ''),
+            (string) ($data['model'] ?? $data['type'] ?? 'general'),
+            (string) ($data['title'] ?? 'FieldKonnect SK Inverter Battery Solar')
+        );
 
-        $serverKey = 'AAAAVO4fLoE:APA91bHceRDC8GZgOFCIzfiBjqMx5vqgpC14s3Z-4dh-qOqvyTWg6zl8TTeIwZrepNs_cojgUcY6PbXwGPLx5VuGTiw-5vZUlj7jvasgatM4x22yEyj0gaYVCwpl9vJeJDmdo7E5vWEy';
-        if (!empty($token)) {
-            $notification = array('title' => $data['title'], 'message' => $data['body'], 'time' => date('Y-m-d'), 'image' => "https://source.unsplash.com/user/c_v_r/1900x800");
-            $arrayToSend = array('to' => $token, 'data' => $notification);
-            $json = json_encode($arrayToSend);
-            $headers = array(
-                'Content-Type:application/json',
-                'Authorization:key=' . $serverKey
-            );
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
-            //Send the request
-            $response = curl_exec($ch);
-            //Close request
-            if ($response === FALSE) {
-                die('FCM Send Error: ' . curl_error($ch));
-            }
-            dd($response);
-            curl_close($ch);
+        if ($sent) {
             Notification::create([
-                'type' => isset($data['title']) ? $data['title'] : '',
-                'data' => isset($data['body']) ? $data['body'] : '',
-                'customer_id' => isset($data['customer_id']) ? $data['customer_id'] : null,
+                'type' => $data['title'] ?? '',
+                'data' => $data['body'] ?? $data['message'] ?? '',
+                'customer_id' => $data['customer_id'] ?? null,
                 'user_id' => $userid
             ]);
         }
+
+        return $sent;
     }
 }
 if (! function_exists('receiverNotification')) {
     function receiverNotification($data, $receiver_id)
     {
-        $url = 'https://fcm.googleapis.com/fcm/send';
-        // $server_key = 'AAAAz12287M:APA91bELeMYiEsqBNzFfKvKgcdPA645159iYFc9fMLxiPTDvWJwoS2xOP14m1ZfbyOkVT9m6qe4aviKIaXUdk3NeO12Ft3NQBJt5J9rnM6fCeMyK98Qsjp5eZdhpj79h07Em7nJ_482Y';
-        $serverKey = 'AAAAVO4fLoE:APA91bHceRDC8GZgOFCIzfiBjqMx5vqgpC14s3Z-4dh-qOqvyTWg6zl8TTeIwZrepNs_cojgUcY6PbXwGPLx5VuGTiw-5vZUlj7jvasgatM4x22yEyj0gaYVCwpl9vJeJDmdo7E5vWEy';
-        $notification_id = User::where('id', $receiver_id)->pluck('notification_id')->first();
-        $fields = array();
-        $fields['data'] = $data;
-        $fields['registration_ids'] = array($notification_id);
-        $headers = array(
-            'Content-Type:application/json',
-            'Authorization:key=' . $server_key
+        return SendPushNotification(
+            $receiver_id,
+            (string) ($data['body'] ?? $data['message'] ?? ''),
+            (string) ($data['model'] ?? $data['type'] ?? 'general'),
+            (string) ($data['title'] ?? 'FieldKonnect SK Inverter Battery Solar')
         );
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($fields));
-        $result = curl_exec($ch);
-        if ($result === FALSE) {
-            die('FCM Send Error: ' . curl_error($ch));
-        }
-        curl_close($ch);
-        return $result;
     }
 }
 
@@ -1197,35 +1160,72 @@ if (!function_exists('isCustomerUser')) {
     }
 }
 
-if (!function_exists('SendPushNotification')) {
-    function SendPushNotification($user_id, $message, $model = 'lead')
+if (!function_exists('SendPushNotificationToToken')) {
+    function SendPushNotificationToToken($deviceToken, $message, $model = 'general', $title = 'FieldKonnect SK Inverter Battery Solar')
     {
         try {
-            $user = User::find($user_id);
-
-            if (!$user || empty($user->notification_id)) {
-                return false; // no user or no fcm token
+            $deviceToken = trim((string) $deviceToken);
+            if ($deviceToken === '') {
+                \Log::warning('Push notification skipped: FCM token is empty.');
+                return false;
             }
 
-            $fcmToken = $user->notification_id;
-            $title = 'FieldKonnect';
-            $credentialsPath = storage_path('app/skinverterbatterysolar-2f469-firebase-adminsdk-fbsvc-33619161c2.json');
+            $configuredCredentials = config('firebase.projects.app.credentials');
+            $fallbackCredentials = storage_path('app/sk-inverter-battery-solar-firebase-adminsdk.json');
+            $credentialsPath = is_string($configuredCredentials) && is_readable($configuredCredentials)
+                ? $configuredCredentials
+                : $fallbackCredentials;
             $scopes = ['https://www.googleapis.com/auth/firebase.messaging'];
-            $projectId = 'skinverterbatterysolar-2f469';
-            $deviceToken = $fcmToken;
+
+            if (!is_readable($credentialsPath)) {
+                \Log::error('Push notification failed: Firebase credentials file is missing or unreadable.', [
+                    'credentials_path' => $credentialsPath,
+                ]);
+                return false;
+            }
+
+            $serviceAccount = json_decode((string) file_get_contents($credentialsPath), true);
+            $projectId = $serviceAccount['project_id'] ?? null;
+            $expectedProjectId = 'sk-inverter-battery-solar';
+            if ($projectId !== $expectedProjectId) {
+                \Log::error('Push notification failed: Firebase service account belongs to the wrong project.', [
+                    'expected_project_id' => $expectedProjectId,
+                    'actual_project_id' => $projectId,
+                    'credentials_file' => basename($credentialsPath),
+                ]);
+                return false;
+            }
 
             $client = new Client();
             $credentials = new ServiceAccountCredentials($scopes, $credentialsPath);
-            $credentials->fetchAuthToken();
-            $token = $credentials->getLastReceivedToken()['access_token'];
+            $authToken = $credentials->fetchAuthToken();
+            $token = $authToken['access_token'] ?? null;
+
+            if (empty($token)) {
+                \Log::error('Push notification failed: Firebase OAuth access token was not returned.');
+                return false;
+            }
 
             $messagePayload = [
                 'message' => [
                     'token' => $deviceToken,
+                    'notification' => [
+                        'title' => $title,
+                        'body' => $message,
+                    ],
                     'data' => [
                         'title' => $title,
                         'body'  => $message,
                         'image' => $model,
+                        'model' => $model,
+                    ],
+                    'android' => [
+                        'priority' => 'high',
+                        'notification' => ['sound' => 'default'],
+                    ],
+                    'apns' => [
+                        'headers' => ['apns-priority' => '10'],
+                        'payload' => ['aps' => ['sound' => 'default']],
                     ],
                 ],
             ];
@@ -1236,18 +1236,45 @@ if (!function_exists('SendPushNotification')) {
                     'Content-Type'  => 'application/json',
                 ],
                 'json'    => $messagePayload,
+                'timeout' => 15,
             ]);
 
             if ($response->getStatusCode() == 200) {
                 return true;
             }
+        } catch (RequestException $e) {
+            $response = $e->getResponse();
+            \Log::error('Push notification failed at FCM.', [
+                'model' => $model,
+                'http_status' => $response ? $response->getStatusCode() : null,
+                'fcm_response' => $response ? (string) $response->getBody() : null,
+                'error' => $e->getMessage(),
+            ]);
+            return false;
         } catch (\Exception $e) {
-            // Instead of breaking, just log and bypass
-            \Log::error("Push notification failed: " . $e->getMessage());
+            \Log::error('Push notification failed: ' . $e->getMessage(), ['model' => $model]);
             return false;
         }
 
         return false;
+    }
+}
+
+if (!function_exists('SendPushNotification')) {
+    function SendPushNotification($user_id, $message, $model = 'lead', $title = 'FieldKonnect SK Inverter Battery Solar')
+    {
+        if (!User::whereKey($user_id)->exists()) {
+            \Log::warning('Push notification skipped: user not found.', ['user_id' => $user_id]);
+            return false;
+        }
+
+        $deviceToken = trim((string) User::whereKey($user_id)->value('notification_id'));
+        if ($deviceToken === '') {
+            \Log::warning('Push notification skipped: user has no FCM token.', ['user_id' => $user_id]);
+            return false;
+        }
+
+        return SendPushNotificationToToken($deviceToken, $message, $model, $title);
     }
 }
 

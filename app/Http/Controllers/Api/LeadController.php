@@ -502,7 +502,13 @@ class LeadController extends Controller
         $lead_task = LeadTask::where(['id' => $task_id])->first();
 
         if ($lead_task) {
+            $previousAssignedTo = $lead_task->assigned_to;
             $lead_task->update(['assigned_to' => $request->assigned_to, 'lead_id' => $request->lead_id, 'created_by' => $created_by, 'description' => $request->description, 'date' => $request->date, 'time' => $request->time, 'priority' => $request->priority]);
+            if ((string) $previousAssignedTo !== (string) $request->assigned_to) {
+                $message = '📝 A new task has been assigned to you.';
+                SendPushNotification($request->assigned_to, $message, 'task');
+                StoreLeadNotification($lead_task->id, 'Assigned Task', $message, $request->assigned_to, 'task');
+            }
             $new = false;
         } else {
             $lead_task = LeadTask::create(['assigned_to' => $request->assigned_to, 'lead_id' => $request->lead_id, 'created_by' => $created_by, 'description' => $request->description, 'date' => $request->date, 'time' => $request->time, 'priority' => $request->priority]);
@@ -580,8 +586,8 @@ class LeadController extends Controller
         $msg = '🎯 Lead move to opportunity ' . $cur_status->status_name .
             ': ' . Str::limit($lead_opportunity->lead->company_name, 10, '...') .
             ' by ' . Auth::user()->name;
-        SendPushNotification($lead_opportunity->lead->created_by, $msg, 'opportunity');
-        StoreLeadNotification($lead_opportunity->id, 'New Opportunity', $msg, $lead_opportunity->lead->created_by, 'opportunity');
+        SendPushNotification($lead_opportunity->assigned_to, $msg, 'opportunity');
+        StoreLeadNotification($lead_opportunity->id, 'New Opportunity', $msg, $lead_opportunity->assigned_to, 'opportunity');
 
         if ($new) {
             return response()->json(['status' => 'success', 'message' => 'Opportunity added successfully.', 'data' => $lead_opportunity], 200);
@@ -1037,7 +1043,9 @@ class LeadController extends Controller
             if (isset($task->task_status) && $task->task_status != $task_status) {
                 if ($task_status == 'Completed') {
                     $request['completed_at'] = date('Y-m-d H:i s');
-                    SendPushNotification($task->created_by, '📝 Your assigned task ' . $task->title . ' has been completed. (By-  ' . $request->user()->name . ')', 'task_management');
+                    $message = '📝 Your assigned task ' . $task->title . ' has been completed. (By-  ' . $request->user()->name . ')';
+                    SendPushNotification($task->created_by, $message, 'task_management');
+                    StoreLeadNotification($task->id, 'Completed Task', $message, $task->created_by, 'task_management');
                 } elseif ($task_status == 'Open') {
                     $request['open_datetime'] = date('Y-m-d H:i s');
                 } elseif ($task_status == 'In progress') {
@@ -1105,10 +1113,15 @@ class LeadController extends Controller
     {
         try {
             $user = $request->user();
-            $notifications = LeadNotification::where(['user_id' => $user->id, 'read' => 0])->latest()->paginate($request->pageSize ?? 30);
+            $notifications = LeadNotification::where('user_id', $user->id)
+                ->when($request->has('read'), function ($query) use ($request) {
+                    $query->where('read', $request->boolean('read'));
+                })
+                ->latest()
+                ->paginate($request->integer('pageSize', 30));
             return response()->json([
                 'status' => 'success',
-                'data' => $notifications->items(),
+                'data' => $notifications,
                 'message' => 'Notifications retrieved successfully'
             ], $this->successStatus);
         } catch (\Exception $e) {
