@@ -1171,7 +1171,7 @@ if (!function_exists('SendPushNotificationToToken')) {
             }
 
             $configuredCredentials = config('firebase.projects.app.credentials');
-            $fallbackCredentials = storage_path('app/sk-inverter-battery-solar-firebase-adminsdk.json');
+            $fallbackCredentials = storage_path('app/sk-inverter-battery-solar-firebase-adminsdk-fbsvc-0167dfb2ed.json');
             $credentialsPath = is_string($configuredCredentials) && is_readable($configuredCredentials)
                 ? $configuredCredentials
                 : $fallbackCredentials;
